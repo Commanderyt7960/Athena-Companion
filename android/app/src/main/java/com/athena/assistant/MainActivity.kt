@@ -178,7 +178,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         io.execute {
             try {
-                val result = s.generateResponse("You are Athena, a private helpful Android assistant. Answer concisely. User: $text")
+                s.addQueryChunk("You are Athena, a private helpful Android assistant. Answer concisely. User: $text")
+                val result = s.generateResponse()
                 runOnUiThread {
                     append("Athena: $result")
                     saveMemory("athena", result)
