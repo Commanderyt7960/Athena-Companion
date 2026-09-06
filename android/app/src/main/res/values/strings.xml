@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Athena</string>
+    <string name="accessibility_description">Athena uses AccessibilityService only for user-requested, deterministic navigation and UI actions after you explicitly enable the service. Accessibility data is used to carry out those requested actions.</string>
+</resources>

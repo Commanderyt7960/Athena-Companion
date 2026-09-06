@@ -1,0 +1,13 @@
+ATHENA LOCAL MODEL NOTICE
+
+Athena bundles the Gemma 3 1B IT int4 MediaPipe/LiteRT task bundle at build time.
+The model is approximately 555 MB and is packaged inside the Android APK.
+
+Model source:
+https://huggingface.co/nikhil2024/gemma3-1b-it-litert-mirror
+
+The mirrored task bundle identifies Google/litert-community as the original publisher and is distributed under the Gemma Terms of Use.
+Gemma Terms:
+https://ai.google.dev/gemma/terms
+
+Athena's application code is separate from the model and does not require a Gemini API key for local AI chat.

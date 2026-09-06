@@ -1,4 +1,4 @@
-name: Build Athena - APK + EXE
+name: Build Athena - FULL RELEASE
 
 on:
   workflow_dispatch:
@@ -14,61 +14,74 @@ jobs:
     name: Android APK
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      - uses: android-actions/setup-android@v3
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.11.1'
           cache-provider: basic
-
+      - name: Download bundled local Android model
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/assets
+          curl -L --fail --retry 5 --retry-all-errors -o app/src/main/assets/athena.task \
+            "https://huggingface.co/nikhil2024/gemma3-1b-it-litert-mirror/resolve/main/gemma3-1b-it-int4.task?download=true"
+          test -s app/src/main/assets/athena.task
+          ls -lh app/src/main/assets/athena.task
       - name: Build signed debug APK
         working-directory: android
         run: gradle --no-daemon assembleDebug
-
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk Athena-Android.apk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
           name: Athena-Android-APK
           path: Athena-Android.apk
           if-no-files-found: error
 
   windows:
-    name: Windows EXE
+    name: Windows EXE with bundled local AI
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-
+      - name: Download llama.cpp Windows CPU runtime
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ggml-org/llama.cpp/releases/download/b10516/llama-b10516-bin-win-cpu-x64.zip"
+          New-Item -ItemType Directory -Force windows/llama_runtime | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile llama.zip
+          Expand-Archive -Path llama.zip -DestinationPath windows/llama_runtime -Force
+          $exe = Get-ChildItem windows/llama_runtime -Recurse -Filter llama-cli.exe | Select-Object -First 1
+          if (-not $exe) { throw "llama-cli.exe was not found in the downloaded runtime" }
+          Copy-Item $exe.FullName windows/llama_runtime/llama-cli.exe -Force
+      - name: Download bundled local Gemma model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force windows/models | Out-Null
+          $url = "https://huggingface.co/gguf-org/gemma-3-1b-it-gguf/resolve/main/gemma-3-1b-it-Q4_K_M.gguf?download=true"
+          Invoke-WebRequest -Uri $url -OutFile windows/models/gemma-3-1b-it-Q4_K_M.gguf
+          if ((Get-Item windows/models/gemma-3-1b-it-Q4_K_M.gguf).Length -lt 700MB) { throw "Gemma model download is unexpectedly small" }
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
-
-      - name: Build EXE
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name Athena windows/athena_pc.py
-
-      - name: Upload EXE
-        uses: actions/upload-artifact@v7
+      - name: Build one-file Windows EXE with local model
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name Athena `
+            --add-data "windows/models;models" `
+            --add-data "windows/llama_runtime;llama_runtime" `
+            windows/athena_pc.py
+      - uses: actions/upload-artifact@v7
         with:
           name: Athena-Windows-EXE
           path: dist/Athena.exe
