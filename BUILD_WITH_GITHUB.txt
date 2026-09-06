@@ -1,0 +1,15 @@
+FASTEST WAY
+============
+
+1. Extract this ZIP.
+2. Create a PUBLIC GitHub repository.
+3. Upload the extracted contents, preserving the .github folder.
+4. Open Actions.
+5. Select "Build Athena - APK + EXE".
+6. Click "Run workflow".
+7. Download the two artifacts when complete.
+
+If the .github folder is not visible in Windows Explorer, enable:
+View -> Show -> Hidden items.
+
+Do NOT rename .github.
