@@ -64,7 +64,7 @@ jobs:
           Expand-Archive -Path llama.zip -DestinationPath windows/llama_runtime -Force
           $exe = Get-ChildItem windows/llama_runtime -Recurse -Filter llama-cli.exe | Select-Object -First 1
           if (-not $exe) { throw "llama-cli.exe was not found in the downloaded runtime" }
-          Copy-Item $exe.FullName windows/llama_runtime/llama-cli.exe -Force
+          Write-Host "Using llama runtime: $($exe.FullName)"
       - name: Download bundled local Gemma model
         shell: pwsh
         run: |
@@ -72,6 +72,9 @@ jobs:
           $url = "https://huggingface.co/gguf-org/gemma-3-1b-it-gguf/resolve/main/gemma-3-1b-it-Q4_K_M.gguf?download=true"
           Invoke-WebRequest -Uri $url -OutFile windows/models/gemma-3-1b-it-Q4_K_M.gguf
           if ((Get-Item windows/models/gemma-3-1b-it-Q4_K_M.gguf).Length -lt 700MB) { throw "Gemma model download is unexpectedly small" }
+      - name: Remove Python cache files
+        shell: pwsh
+        run: Remove-Item -Recurse -Force windows/__pycache__ -ErrorAction SilentlyContinue
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
       - name: Build one-file Windows EXE with local model

@@ -171,7 +171,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 socket.getOutputStream().write(req.toByteArray(Charsets.UTF_8));socket.getOutputStream().flush()
                 val reply=socket.getInputStream().bufferedReader().readLine() ?: error("empty")
                 done(JSONObject(reply).optString("reply","No response from PC."))
-            }}catch(_:Exception){done("I couldn't reach the PC. Check its address, firewall and pairing token.")}}}
+            }
+        } catch (_: Exception) {
+            done("I couldn't reach the PC. Check its address, firewall and pairing token.")
+        }}
     }
 
     private fun showPcDialog(){
@@ -186,6 +189,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun append(s:String){chat.append("\n$s\n");scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}
     private fun saveMemory(role:String,text:String){val arr=try{JSONArray(prefs.getString("memory","[]"))}catch(_:Exception){JSONArray()};arr.put(JSONObject().put("role",role).put("text",text).put("time",System.currentTimeMillis()));while(arr.length()>500)arr.remove(0);prefs.edit().putString("memory",arr.toString()).apply()}
+    private fun recentHistory(): String {
+        val arr = try {
+            JSONArray(prefs.getString("memory", "[]"))
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        val start = maxOf(0, arr.length() - 12)
+        val out = StringBuilder()
+        for (i in start until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val role = item.optString("role", "user")
+            val text = item.optString("text", "")
+            if (text.isNotBlank()) out.append(role).append(": ").append(text).append('\n')
+        }
+        return out.toString()
+    }
+
     private fun showMemory(){val arr=try{JSONArray(prefs.getString("memory","[]"))}catch(_:Exception){JSONArray()};val out=StringBuilder("LOCAL MEMORY\n\n");val start=maxOf(0,arr.length()-30);for(i in start until arr.length()){val o=arr.optJSONObject(i);out.append(o?.optString("role")).append(": ").append(o?.optString("text")).append('\n')};chat.text=out.toString();scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}
     private fun loadModelIfPresent(){
         io.execute{
