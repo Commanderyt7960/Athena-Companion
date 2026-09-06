@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.compile.JavaCompile
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,6 +16,13 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    // Force every JavaCompile task to emit JVM 17 bytecode.
+    // This prevents Gradle/Kotlin 2.x target-validation mismatches.
+    tasks.withType<JavaCompile>().configureEach {
+        sourceCompatibility = JavaVersion.VERSION_17.toString()
+        targetCompatibility = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
