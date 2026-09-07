@@ -33,18 +33,36 @@ class AthenaWakeService : Service() {
     private var listening = false
     private var restarting = false
     private var paused = false
+    private var foregroundReady = false
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, notification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification())
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification(),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification())
+            }
+            foregroundReady = true
+        } catch (_: SecurityException) {
+            foregroundReady = false
+            stopSelf()
+        } catch (_: IllegalStateException) {
+            foregroundReady = false
+            stopSelf()
+        } catch (_: Exception) {
+            foregroundReady = false
+            stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!foregroundReady) return START_NOT_STICKY
         if (intent?.action == ACTION_STOP) {
             paused = true
             recognizer?.cancel()
@@ -59,14 +77,21 @@ class AthenaWakeService : Service() {
         }
         if (intent?.action == ACTION_RESUME) {
             paused = false
-            startWakeListening()
+            try { startWakeListening() } catch (_: Exception) { restartSoon() }
             return START_STICKY
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             stopSelf()
             return START_NOT_STICKY
         }
-        startWakeListening()
+        try {
+            startWakeListening()
+        } catch (_: SecurityException) {
+            stopSelf()
+            return START_NOT_STICKY
+        } catch (_: Exception) {
+            restartSoon()
+        }
         return START_STICKY
     }
 
@@ -74,7 +99,12 @@ class AthenaWakeService : Service() {
         if (paused) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return
         if (recognizer == null) {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            try {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            } catch (_: Exception) {
+                restartSoon()
+                return
+            }
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) { listening = true }
                 override fun onBeginningOfSpeech() { }

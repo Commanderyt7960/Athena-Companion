@@ -54,8 +54,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("athena_local", Context.MODE_PRIVATE)
         tts = TextToSpeech(this, this)
-        buildUi(); requestPermissions(); loadModelIfPresent()
+        buildUi()
+        loadModelIfPresent()
         handleWakeIntent(intent)
+        requestPermissions()
     }
 
     private fun button(text: String, action: () -> Unit) = Button(this).apply { this.text = text; setOnClickListener { action() } }
@@ -77,8 +79,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
+        // Start background listening only after the Activity is fully resumed.
+        // A short post prevents Android from treating the service launch as part
+        // of the permission/activity transition on devices with strict startup rules.
         if (!backgroundWakeCommandActive && prefs.getBoolean("background_wake", true)) {
-            startBackgroundWakeIfAllowed()
+            scheduleBackgroundWake()
         }
     }
 
@@ -215,16 +220,45 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startBackgroundWakeIfAllowed(){
-        if(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) return
-        if(android.os.Build.VERSION.SDK_INT>=33 && ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) return
-        try{ContextCompat.startForegroundService(this,Intent(this,AthenaWakeService::class.java))}catch(_:Exception){}
+        if(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        try {
+            ContextCompat.startForegroundService(this, Intent(this, AthenaWakeService::class.java))
+        } catch (_: SecurityException) {
+            status.text = "Ready"
+        } catch (_: IllegalStateException) {
+            status.text = "Ready"
+        } catch (_: Exception) {
+            status.text = "Ready"
+        }
     }
 
     private fun requestPermissions(){
         val needed=mutableListOf<String>()
         if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.RECORD_AUDIO)
         if(android.os.Build.VERSION.SDK_INT>=33 && ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.POST_NOTIFICATIONS)
-        if(needed.isNotEmpty()) ActivityCompat.requestPermissions(this,needed.toTypedArray(),10)
+        if(needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this,needed.toTypedArray(),10)
+        } else {
+            scheduleBackgroundWake()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode:Int, permissions:Array<out String>, grantResults:IntArray){
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if(requestCode != 10) return
+        if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED){
+            scheduleBackgroundWake(1200)
+        }
+    }
+
+    private fun scheduleBackgroundWake(delayMs:Long = 800){
+        if(!prefs.getBoolean("background_wake", true)) return
+        window.decorView.postDelayed({
+            if(!isFinishing && !isDestroyed && !backgroundWakeCommandActive &&
+                ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED){
+                startBackgroundWakeIfAllowed()
+            }
+        }, delayMs)
     }
 
     private fun showDeviceAccess(){

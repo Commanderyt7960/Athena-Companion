@@ -1,0 +1,14 @@
+ATHENA V14 - ANDROID STARTUP HARDENING
+======================================
+
+This rebuild keeps V13.2 functionality and adds a stricter permission/startup sequence.
+
+- The app UI is built and the local model load is started before permission prompting.
+- The microphone foreground listener is NOT started merely because Activity.onResume fired
+  during a permission transition.
+- If microphone permission is already granted, listening is scheduled after the Activity is ready.
+- If the user grants microphone permission, listening is scheduled after the permission callback.
+- The wake service refuses to start recognition unless its microphone foreground service was
+  successfully promoted to the foreground first.
+- Foreground-service startup failures leave Athena open instead of continuing into recognition.
+- Existing local AI, UI, PC pairing, accessibility and wake functionality is retained.
