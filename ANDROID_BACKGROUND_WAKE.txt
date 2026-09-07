@@ -1,17 +1,5 @@
-ATHENA V9 - BACKGROUND WAKE + LOCAL AI FIXES
+BACKGROUND LISTENING
 
-This release fixes two important problems:
+Always-on listening is intentionally opt-in in V15. This avoids starting a microphone foreground service during Activity startup, which is a common source of Android 14/15 startup failures.
 
-1. Gemma 3 prompt formatting:
-   The Android local model now receives the Gemma 3 turn format:
-   <start_of_turn>user ... <end_of_turn><start_of_turn>model
-   This prevents the model from behaving like a raw prompt and repeatedly introducing itself.
-
-2. Background wake feedback loop:
-   When the background listener hears "Athena", it pauses microphone recognition before opening the app.
-   The listener resumes only after Athena finishes speaking the answer. This prevents Athena's own TTS voice
-   from being heard as another wake command and causing repeated/spammed responses.
-
-3. Each AI request gets a fresh LlmInferenceSession, so old generation state cannot bleed into a new question.
-
-The bundled Gemma model is still downloaded by the GitHub Actions workflow at build time.
+Enable it from Athena > Tools > Always-on microphone after granting microphone access.

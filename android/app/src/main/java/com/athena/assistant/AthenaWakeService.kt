@@ -20,196 +20,114 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.Locale
 
-/**
- * Background wake listener for Athena.
- *
- * This is a microphone foreground service, so Android shows a persistent
- * notification while the listener is active. Speech recognition is requested
- * in offline-preferred mode and only the wake phrase is acted on here.
- * The full Athena UI/local LLM handles the command after wake-up.
- */
 class AthenaWakeService : Service() {
     private var recognizer: SpeechRecognizer? = null
-    private var listening = false
-    private var restarting = false
     private var paused = false
-    private var foregroundReady = false
+    private var restarting = false
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
         try {
-            if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification(),
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification())
-            }
-            foregroundReady = true
-        } catch (_: SecurityException) {
-            foregroundReady = false
-            stopSelf()
-        } catch (_: IllegalStateException) {
-            foregroundReady = false
-            stopSelf()
-        } catch (_: Exception) {
-            foregroundReady = false
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            else startForeground(NOTIFICATION_ID, notification())
+        } catch (_: Throwable) {
+            // Do not crash the process if Android rejects foreground-service startup.
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!foregroundReady) return START_NOT_STICKY
-        if (intent?.action == ACTION_STOP) {
-            paused = true
-            recognizer?.cancel()
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> { paused = true; stopSelf(); return START_NOT_STICKY }
+            ACTION_PAUSE -> { paused = true; recognizer?.cancel(); return START_STICKY }
+            ACTION_RESUME -> { paused = false; startWakeListening(); return START_STICKY }
         }
-        if (intent?.action == ACTION_PAUSE) {
-            paused = true
-            listening = false
-            recognizer?.cancel()
-            return START_STICKY
-        }
-        if (intent?.action == ACTION_RESUME) {
-            paused = false
-            try { startWakeListening() } catch (_: Exception) { restartSoon() }
-            return START_STICKY
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        try {
-            startWakeListening()
-        } catch (_: SecurityException) {
-            stopSelf()
-            return START_NOT_STICKY
-        } catch (_: Exception) {
-            restartSoon()
-        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { stopSelf(); return START_NOT_STICKY }
+        paused = false
+        startWakeListening()
         return START_STICKY
     }
 
     private fun startWakeListening() {
-        if (paused) return
+        if (paused || ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return
         if (recognizer == null) {
-            try {
-                recognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            } catch (_: Exception) {
-                restartSoon()
-                return
-            }
+            try { recognizer = SpeechRecognizer.createSpeechRecognizer(this) } catch (_: Throwable) { return }
             recognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) { listening = true }
-                override fun onBeginningOfSpeech() { }
-                override fun onRmsChanged(rmsdB: Float) { }
-                override fun onBufferReceived(buffer: ByteArray?) { }
-                override fun onEndOfSpeech() { listening = false }
-                override fun onError(error: Int) { listening = false; restartSoon() }
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onError(error: Int) { restartSoon() }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
                 override fun onResults(results: Bundle?) {
-                    listening = false
-                    val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull().orEmpty().trim()
+                    val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
                     val lower = spoken.lowercase(Locale.UK)
                     if (lower == "athena" || lower.startsWith("athena ") || lower.startsWith("athena,") || lower.startsWith("athena.")) {
-                        val clean = stripWakeWord(spoken)
-                        ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35)
-                            .startTone(ToneGenerator.TONE_PROP_BEEP, 45)
-                        val open = Intent(this@AthenaWakeService, MainActivity::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                            putExtra(MainActivity.EXTRA_WAKE_COMMAND, clean)
-                        }
+                        val command = stripWakeWord(spoken)
+                        ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35).startTone(ToneGenerator.TONE_PROP_BEEP, 45)
                         paused = true
-                        recognizer?.cancel()
-                        startActivity(open)
-                        return
-                    }
-                    restartSoon()
+                        try { recognizer?.cancel() } catch (_: Exception) {}
+                        val open = Intent(this@AthenaWakeService, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            putExtra(MainActivity.EXTRA_WAKE_COMMAND, command)
+                        }
+                        try { startActivity(open) } catch (_: Throwable) {
+                            // Android may block background activity launches. The notification remains available.
+                        }
+                    } else restartSoon()
                 }
-                override fun onPartialResults(partialResults: Bundle?) { }
-                override fun onEvent(eventType: Int, params: Bundle?) { }
             })
         }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.UK.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
-        try {
-            recognizer?.startListening(intent)
-            listening = true
-        } catch (_: Exception) {
-            restartSoon()
-        }
+        try { recognizer?.startListening(speechIntent) } catch (_: Throwable) { restartSoon() }
     }
-
-    private fun stripWakeWord(spoken:String):String{
-        val lower=spoken.lowercase(Locale.UK)
-        if(lower=="athena") return ""
-        var index=6
-        while(index<spoken.length && spoken[index].isWhitespace()) index++
-        if(index<spoken.length && spoken[index] in charArrayOf(',', '.', ':', ';', '-', '!', '?')) index++
-        while(index<spoken.length && spoken[index].isWhitespace()) index++
-        return spoken.substring(index).trim()
-    }
-
-    private val handler = android.os.Handler(mainLooper)
 
     private fun restartSoon() {
         if (restarting || paused) return
         restarting = true
-        handler.postDelayed({
-            restarting = false
-            if (!paused && !listening) startWakeListening()
-        }, 900)
+        handler.postDelayed({ restarting = false; startWakeListening() }, 900)
+    }
+
+    private fun stripWakeWord(spoken: String): String {
+        if (spoken.equals("athena", true)) return ""
+        var i = 6
+        while (i < spoken.length && spoken[i].isWhitespace()) i++
+        if (i < spoken.length && spoken[i] in charArrayOf(',', '.', ':', ';', '-', '!', '?')) i++
+        while (i < spoken.length && spoken[i].isWhitespace()) i++
+        return spoken.substring(i).trim()
     }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Athena background listening",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps Athena's background wake listener active."
-                setShowBadge(false)
-            }
+            val channel = NotificationChannel(CHANNEL_ID, "Athena background listening", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun notification(): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this, 1,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val pi = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.athena_icon)
             .setContentTitle("Athena is listening")
             .setContentText("Say “Athena” whenever you need her")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setContentIntent(openIntent)
+            .setContentIntent(pi)
             .build()
     }
 
-    override fun onDestroy() {
-        listening = false
-        recognizer?.cancel()
-        recognizer?.destroy()
-        recognizer = null
-        super.onDestroy()
-    }
-
+    override fun onDestroy() { try { recognizer?.cancel(); recognizer?.destroy() } catch (_: Exception) {}; recognizer = null; super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {

@@ -1,11 +1,16 @@
-ATHENA — DISTRIBUTION BUILD
+ATHENA — V15 CLEAN REBUILD
 
-1. Push this repository to GitHub.
-2. Open Actions and run “Build Athena - FULL RELEASE”.
-3. Download the Android APK and Windows EXE from the completed workflow.
+This package is a fresh Android/Windows rebuild of Athena.
 
-The Android app now uses a simple main screen with one Tools button. Pairing to the Windows companion is automatic on the same Wi-Fi.
+ANDROID
+- Local Gemma 3 1B LiteRT model is downloaded by GitHub Actions during the build.
+- Microphone permission is handled only from the visible Activity.
+- The app never intentionally closes because microphone access is denied.
+- Always-on listening is enabled from Tools after permission is granted.
+- Windows PC discovery remains automatic over the local Wi-Fi network.
 
-Background wake is enabled by default. Android may require the user to allow Athena to keep running in the background for reliable wake behaviour.
+WINDOWS
+- Local Gemma 3 1B GGUF + llama.cpp runtime are bundled by GitHub Actions.
 
-The bundled AI model is downloaded by the GitHub workflow at build time; it is not stored in the source repository.
+BUILD
+Push this repository to GitHub and run the GitHub Actions workflow manually. The workflow produces Athena-Android.apk and Athena.exe as artifacts.

@@ -1,0 +1,14 @@
+ATHENA V15 CLEAN ANDROID REBUILD
+
+This rebuild removes the startup background-listener launch that could cause the app to disappear immediately after the Android microphone permission flow.
+
+Startup behaviour:
+- MainActivity always stays open regardless of microphone choice.
+- Microphone permission is requested from the visible Activity.
+- If microphone access is declined, Athena remains open and asks again.
+- Notification permission is optional and never closes the app.
+- Always-on microphone is an explicit Tools option. It is NOT silently started during app startup.
+- Once the user enables Always-on microphone, the foreground microphone service is started while Athena is visible.
+- If Android rejects that service, the app stays open and reports the problem instead of crashing.
+
+The Android system controls the wording of its own permission dialog. Athena cannot rename or force Android's choices.
