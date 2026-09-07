@@ -1,5 +1,0 @@
-BACKGROUND LISTENING
-
-Always-on listening is intentionally opt-in in V15. This avoids starting a microphone foreground service during Activity startup, which is a common source of Android 14/15 startup failures.
-
-Enable it from Athena > Tools > Always-on microphone after granting microphone access.

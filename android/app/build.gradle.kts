@@ -29,8 +29,8 @@ android {
         applicationId = "com.athena.assistant"
         minSdk = 24
         targetSdk = 35
-        versionCode = 16
-        versionName = "3.7.0"
+        versionCode = 17
+        versionName = "3.8.0"
     }
 
     buildTypes {

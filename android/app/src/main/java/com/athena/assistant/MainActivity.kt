@@ -144,21 +144,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(18, 8, 18, 8)
+            setPadding(16, 4, 16, 4)
             setBackgroundColor(Color.rgb(7, 8, 13))
         }
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(0, 4, 0, 8)
+            setPadding(0, 0, 0, 4)
         }
         val icon = ImageView(this).apply {
             setImageResource(R.drawable.athena_icon)
-            layoutParams = LinearLayout.LayoutParams(64, 64).apply { bottomMargin = 4 }
+            layoutParams = LinearLayout.LayoutParams(48, 48).apply { bottomMargin = 2 }
         }
         val title = TextView(this).apply {
             text = "ATHENA"
-            textSize = 25f
+            textSize = 22f
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(Color.rgb(244, 241, 255))
@@ -166,7 +166,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         val welcome = TextView(this).apply {
             text = "What can I do for you?"
-            textSize = 14f
+            textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(180, 176, 198))
         }
@@ -177,13 +177,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(150, 222, 188))
-            setPadding(0, 0, 0, 5)
+            setPadding(0, 0, 0, 2)
         }
         chat = TextView(this).apply {
             text = "Athena is starting…"
-            textSize = 16f
+            textSize = 15f
             setTextColor(Color.rgb(232, 230, 239))
-            setPadding(14, 14, 14, 14)
+            setPadding(12, 10, 12, 10)
             setBackgroundResource(R.drawable.athena_panel)
         }
         scroll = ScrollView(this).apply { addView(chat) }
@@ -213,9 +213,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         root.addView(hero)
         root.addView(status)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(input, LinearLayout.LayoutParams(-1, 58).apply { topMargin = 7; bottomMargin = 7 })
-        root.addView(tools, LinearLayout.LayoutParams(-1, 50))
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 0.55f))
+        root.addView(input, LinearLayout.LayoutParams(-1, 52).apply { topMargin = 5; bottomMargin = 5 })
+        root.addView(tools, LinearLayout.LayoutParams(-1, 46))
         setContentView(root)
     }
 
