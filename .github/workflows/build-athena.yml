@@ -69,7 +69,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force windows/models | Out-Null
-          $url = "https://huggingface.co/gguf-org/gemma-3-1b-it-gguf/resolve/main/gemma-3-1b-it-Q4_K_M.gguf?download=true"
+          $url = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf?download=true"
           Invoke-WebRequest -Uri $url -OutFile windows/models/gemma-3-1b-it-Q4_K_M.gguf
           if ((Get-Item windows/models/gemma-3-1b-it-Q4_K_M.gguf).Length -lt 700MB) { throw "Gemma model download is unexpectedly small" }
       - name: Remove Python cache files
@@ -83,6 +83,7 @@ jobs:
           pyinstaller --noconfirm --clean --onefile --windowed --name Athena `
             --add-data "windows/models;models" `
             --add-data "windows/llama_runtime;llama_runtime" `
+            --icon "windows/athena.ico" `
             windows/athena_pc.py
       - uses: actions/upload-artifact@v7
         with:
