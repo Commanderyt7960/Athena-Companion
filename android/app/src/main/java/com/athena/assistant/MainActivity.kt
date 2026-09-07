@@ -166,7 +166,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val token=prefs.getString("pc_token","") ?: ""
         if(host.isBlank()||token.isBlank()){done("The PC is not paired yet.");return}
         io.execute{try{
-            Socket().use{socket->{socket.connect(InetSocketAddress(host,port),2500);socket.soTimeout=5000
+            Socket().use{socket->socket.connect(InetSocketAddress(host,port),2500);socket.soTimeout=5000
                 val req=JSONObject().put("token",token).put("command",command).toString()+"\n"
                 socket.getOutputStream().write(req.toByteArray(Charsets.UTF_8));socket.getOutputStream().flush()
                 val reply=socket.getInputStream().bufferedReader().readLine() ?: error("empty")

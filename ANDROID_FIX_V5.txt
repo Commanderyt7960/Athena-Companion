@@ -1,3 +1,0 @@
-V5 fixes the actual Kotlin brace error in MainActivity.kt around sendPc().
-The previous single closing brace after Socket().use left catch inside the nested lambda, causing the cascade of unresolved references, onInit, local-function, and missing-brace errors.
-V5 also gives Android and Windows the same Athena feather icon artwork. Windows PyInstaller now embeds windows/athena.ico and Android uses the matching vector launcher icon.
