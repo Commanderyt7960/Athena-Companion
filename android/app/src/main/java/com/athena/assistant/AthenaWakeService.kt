@@ -37,17 +37,10 @@ class AthenaWakeService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        try {
-            if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(NOTIFICATION_ID, notification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-            } else {
-                startForeground(NOTIFICATION_ID, notification())
-            }
-        } catch (_: SecurityException) {
-            // A missing/revoked microphone permission must not take down Athena.
-            stopSelf()
-        } catch (_: Exception) {
-            stopSelf()
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIFICATION_ID, notification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification())
         }
     }
 
@@ -81,12 +74,7 @@ class AthenaWakeService : Service() {
         if (paused) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return
         if (recognizer == null) {
-            try {
-                recognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            } catch (_: Exception) {
-                restartSoon()
-                return
-            }
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) { listening = true }
                 override fun onBeginningOfSpeech() { }
