@@ -140,21 +140,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
     private fun buildUi() {
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16, 2, 16, 10)
+            setPadding(dp(12), dp(2), dp(12), dp(10))
             setBackgroundColor(Color.rgb(7, 8, 13))
         }
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 2)
+            setPadding(0, 0, 0, dp(2))
         }
         val icon = ImageView(this).apply {
             setImageResource(R.drawable.athena_icon)
-            layoutParams = LinearLayout.LayoutParams(40, 40).apply { bottomMargin = 0 }
+            layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply { bottomMargin = 0 }
         }
         val title = TextView(this).apply {
             text = "ATHENA"
@@ -177,13 +179,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(150, 222, 188))
-            setPadding(0, 0, 0, 2)
+            setPadding(0, 0, 0, dp(2))
         }
         chat = TextView(this).apply {
             text = "Athena is starting…"
             textSize = 15f
             setTextColor(Color.rgb(232, 230, 239))
-            setPadding(12, 10, 12, 10)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             setBackgroundResource(R.drawable.athena_panel)
         }
         scroll = ScrollView(this).apply { addView(chat) }
@@ -193,7 +195,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setSingleLine(true)
             setTextColor(Color.rgb(239, 237, 246))
             setHintTextColor(Color.rgb(118, 115, 133))
-            setPadding(16, 10, 16, 10)
+            setPadding(dp(14), dp(6), dp(14), dp(6))
             setBackgroundResource(R.drawable.athena_input)
             imeOptions = EditorInfo.IME_ACTION_SEND
             setOnEditorActionListener { _, actionId, event ->
@@ -205,6 +207,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         val tools = Button(this).apply {
+            minHeight = 0
+            minWidth = 0
+            stateListAnimator = null
             text = "☰  TOOLS"
             textSize = 15f
             setTextColor(Color.rgb(235, 231, 255))
@@ -213,9 +218,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         root.addView(hero)
         root.addView(status)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 150).apply { topMargin = 2; bottomMargin = 6 })
-        root.addView(input, LinearLayout.LayoutParams(-1, 50).apply { topMargin = 0; bottomMargin = 6 })
-        root.addView(tools, LinearLayout.LayoutParams(-1, 50).apply { topMargin = 0; bottomMargin = 2 })
+        // Use density-independent pixels here. Raw pixel heights made the previous build
+        // appear squashed on higher-density phones (the 50px input became only ~18dp).
+        root.addView(scroll, LinearLayout.LayoutParams(-1, dp(125)).apply { topMargin = dp(2); bottomMargin = dp(6) })
+        root.addView(input, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = 0; bottomMargin = dp(6) })
+        root.addView(tools, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = 0; bottomMargin = dp(2) })
         setContentView(root)
     }
 
