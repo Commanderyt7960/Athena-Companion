@@ -103,6 +103,10 @@ def local_ai(text):
     try:
         r=subprocess.run(cmd,capture_output=True,text=True,timeout=120,cwd=str(exe.parent),creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
         answer=(r.stdout or "").strip()
+        answer=answer.replace("<start_of_turn>model","").replace("<end_of_turn>","").strip()
+        import re
+        answer=re.sub(r"(?i)^(assistant|model)\s*:\s*", "", answer).strip()
+        answer=re.sub(r"(?i)^(hi[, ]+)?i am athena[, .-]+(an? )?ai assistant[, .-]*", "", answer).strip()
         if answer:
             return answer
     except subprocess.TimeoutExpired:
@@ -140,15 +144,33 @@ class AthenaPC:
     def label(self,text,size=12,color="#EDEBFF"):
         return tk.Label(self.root,text=text,bg="#080A10",fg=color,font=("Segoe UI",size))
     def build_ui(self):
-        self.label("ATHENA",28).pack(pady=(24,0)); self.label("Private local AI • Windows control • phone pairing",12,"#AAA6B8").pack(pady=(0,18))
-        self.status=self.label("Starting…",12,"#9FE7C4"); self.status.pack()
-        self.label("PC ADDRESS",10,"#777487").pack(pady=(22,3)); self.address=self.label(f"{local_ip()}:{PORT}",15); self.address.pack()
-        self.label("PAIRING TOKEN",10,"#777487").pack(pady=(20,3)); token=tk.Entry(self.root,bg="#11141D",fg="#EDEBFF",insertbackground="white",relief="flat",justify="center",font=("Consolas",12)); token.insert(0,TOKEN); token.configure(state="readonly"); token.pack(fill="x",padx=70,ipady=8)
-        self.label("LOCAL AI",10,"#777487").pack(pady=(18,3)); self.label("Gemma 3 1B IT • bundled • no API key • no Ollama • offline",11,"#9FE7C4").pack()
-        self.log=tk.Text(self.root,height=12,bg="#0E1118",fg="#DAD7E5",insertbackground="white",relief="flat"); self.log.pack(fill="both",expand=True,padx=28,pady=22)
-        self.write("Athena is ready. The Windows AI is bundled locally in this release."); self.write("Keep Athena running to accept paired phone commands.")
+        self.label("ATHENA",30).pack(pady=(34,0)); self.label("Your assistant is ready",14,"#AAA6B8").pack(pady=(2,24))
+        self.status=self.label("Ready",13,"#9FE7C4"); self.status.pack(pady=(0,18))
+        card=tk.Frame(self.root,bg="#11131D",highlightthickness=1,highlightbackground="#29243B"); card.pack(fill="x",padx=44,pady=(0,18))
+        tk.Label(card,text="PHONE CONNECTION",bg="#11131D",fg="#777487",font=("Segoe UI",9)).pack(pady=(18,3))
+        self.connection=self.label("Ready for your phone",15); self.connection.pack(in_=card,pady=(0,18))
+        self.log=tk.Text(self.root,height=12,bg="#0E1118",fg="#DAD7E5",insertbackground="white",relief="flat",bd=0); self.log.pack(fill="both",expand=True,padx=28,pady=12)
+        self.write("Athena is ready."); self.write("Your phone can connect automatically while this app is open.")
     def write(self,text): self.log.insert("end",text+"\n"); self.log.see("end")
-    def start_server(self): threading.Thread(target=self.server,daemon=True).start(); self.status.configure(text="ONLINE • local AI ready • waiting for paired devices")
+    def start_server(self):
+        threading.Thread(target=self.server,daemon=True).start()
+        threading.Thread(target=self.discovery_server,daemon=True).start()
+        self.status.configure(text="Ready")
+    def discovery_server(self):
+        s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+        try:
+            s.bind(("0.0.0.0",49322))
+            while True:
+                data,addr=s.recvfrom(4096)
+                if data.decode("utf-8",errors="ignore").strip()=="ATHENA_DISCOVER":
+                    reply=json.dumps({"service":"athena","host":local_ip(),"port":PORT,"token":TOKEN}).encode("utf-8")
+                    s.sendto(reply,addr)
+        except Exception as e:
+            self.root.after(0,lambda:self.connection.configure(text="Phone connection unavailable"))
+        finally:
+            try:s.close()
+            except Exception:pass
     def server(self):
         s=socket.socket(socket.AF_INET,socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("0.0.0.0",PORT)); s.listen(20)
         while True:

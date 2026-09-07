@@ -36,6 +36,7 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
+    companion object { const val EXTRA_WAKE_COMMAND = "athena_wake_command" }
     private lateinit var prefs: SharedPreferences
     private lateinit var tts: TextToSpeech
     private var recognizer: SpeechRecognizer? = null
@@ -43,40 +44,178 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val io = Executors.newCachedThreadPool()
     private var llm: LlmInference? = null
     private var session: LlmInferenceSession? = null
+    private var backgroundWakeCommandActive = false
     private lateinit var status: TextView
     private lateinit var chat: TextView
     private lateinit var input: EditText
     private lateinit var scroll: ScrollView
-    private lateinit var pcAddress: EditText
-    private lateinit var pcToken: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("athena_local", Context.MODE_PRIVATE)
         tts = TextToSpeech(this, this)
         buildUi(); requestPermissions(); loadModelIfPresent()
+        handleWakeIntent(intent)
     }
 
     private fun button(text: String, action: () -> Unit) = Button(this).apply { this.text = text; setOnClickListener { action() } }
 
+    private fun handleWakeIntent(intent: Intent?) {
+        val command = intent?.getStringExtra(EXTRA_WAKE_COMMAND)?.trim().orEmpty()
+        if (command.isNotBlank()) {
+            backgroundWakeCommandActive = true
+            startService(Intent(this, AthenaWakeService::class.java).setAction(AthenaWakeService.ACTION_PAUSE))
+            window.decorView.postDelayed({ askAthena(command) }, 250)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleWakeIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (prefs.getBoolean("background_wake", true)) startBackgroundWakeIfAllowed()
+    }
+
     private fun buildUi() {
-        val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(24,28,24,18); setBackgroundColor(Color.rgb(8,10,16)) }
-        val title=TextView(this).apply{text="ATHENA";textSize=34f;gravity=Gravity.CENTER;setTextColor(Color.rgb(237,235,255))}
-        val sub=TextView(this).apply{text="AI assistant • voice • memory • device + PC control";textSize=14f;gravity=Gravity.CENTER;setTextColor(Color.rgb(169,165,189));setPadding(0,0,0,10)}
-        status=TextView(this).apply{text="Ready";gravity=Gravity.CENTER;setTextColor(Color.rgb(159,231,196));setPadding(0,4,0,10)}
-        chat=TextView(this).apply{text="Athena: Ready. Say “Athena” or type a message.\n";textSize=16f;setTextColor(Color.rgb(232,230,239));setPadding(12,12,12,12)}
-        scroll=ScrollView(this).apply{addView(chat)}
-        input=EditText(this).apply{hint="Talk to Athena…";setSingleLine(false);setTextColor(Color.rgb(232,230,239));setHintTextColor(Color.rgb(119,116,135));setBackgroundColor(Color.rgb(17,20,29))}
-        root.addView(title);root.addView(sub);root.addView(status);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));root.addView(input,LinearLayout.LayoutParams(-1,90))
-        root.addView(button("SEND"){val s=input.text.toString().trim();if(s.isNotEmpty()){input.setText("");askAthena(s)}})
-        root.addView(button("🎙 TALK"){startListening(false)})
-        root.addView(button("ATHENA WAKE LISTEN"){wakeMode=!wakeMode;if(wakeMode){startListening(true)}else recognizer?.cancel()})
-        root.addView(button("🧠 ATHENA LOCAL AI"){showLocalAiInfo()})
-        root.addView(button("🔐 DEVICE PERMISSIONS"){showPermissions()})
-        root.addView(button("🖥 PC CONTROL / PAIR"){showPcDialog()})
-        root.addView(button("🧠 MEMORY"){showMemory()})
-                root.addView(button("CLEAR CHAT"){chat.text="Athena: Chat cleared.\n"})
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 16)
+            setBackgroundColor(Color.rgb(7, 8, 13))
+        }
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(0, 10, 0, 18)
+        }
+        val icon = ImageView(this).apply {
+            setImageResource(R.drawable.athena_icon)
+            layoutParams = LinearLayout.LayoutParams(92, 92).apply { bottomMargin = 10 }
+        }
+        val title = TextView(this).apply {
+            text = "ATHENA"
+            textSize = 30f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.rgb(244, 241, 255))
+            letterSpacing = 0.16f
+        }
+        val welcome = TextView(this).apply {
+            text = "What can I do for you?"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(180, 176, 198))
+            setPadding(0, 6, 0, 0)
+        }
+        hero.addView(icon); hero.addView(title); hero.addView(welcome)
+
+        status = TextView(this).apply {
+            text = "Ready"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(150, 222, 188))
+            setPadding(0, 0, 0, 10)
+        }
+
+        chat = TextView(this).apply {
+            text = ""
+            textSize = 16f
+            setTextColor(Color.rgb(232, 230, 239))
+            setPadding(18, 18, 18, 18)
+            setBackgroundResource(R.drawable.athena_panel)
+        }
+        scroll = ScrollView(this).apply { addView(chat) }
+
+        input = EditText(this).apply {
+            hint = "Ask Athena anything…"
+            textSize = 16f
+            setSingleLine(false)
+            minLines = 1
+            maxLines = 4
+            setTextColor(Color.rgb(239, 237, 246))
+            setHintTextColor(Color.rgb(118, 115, 133))
+            setPadding(18, 14, 18, 14)
+            setBackgroundResource(R.drawable.athena_input)
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+            setOnEditorActionListener { _, actionId, event ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND ||
+                    (event?.keyCode == android.view.KeyEvent.KEYCODE_ENTER && event.isShiftPressed.not())) {
+                    val text = text.toString().trim()
+                    if (text.isNotEmpty()) { setText(""); askAthena(text) }
+                    true
+                } else false
+            }
+        }
+
+        val tools = Button(this).apply {
+            text = "☰  TOOLS"
+            textSize = 15f
+            setTextColor(Color.rgb(235, 231, 255))
+            setBackgroundResource(R.drawable.athena_tools)
+            setPadding(16, 0, 16, 0)
+            setOnClickListener { showTools() }
+        }
+
+        root.addView(hero)
+        root.addView(status)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(input, LinearLayout.LayoutParams(-1, 64).apply { topMargin = 12; bottomMargin = 10 })
+        root.addView(tools, LinearLayout.LayoutParams(-1, 54))
         setContentView(root)
+        chat.text = "Athena is ready."
+    }
+
+    private fun showTools(){
+        val items=arrayOf(
+            "🎙  Talk to Athena",
+            "✨  Background listening",
+            "🖥  Connect to my PC",
+            "📱  Give Athena device access",
+            "🧠  Memories",
+            "🧹  Clear conversation",
+            "ℹ  About Athena"
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Tools")
+            .setItems(items){_,which->
+                when(which){
+                    0->startListening(false)
+                    1->showBackgroundWakeInfo()
+                    2->showPcDialog()
+                    3->showPermissions()
+                    4->showMemory()
+                    5->{chat.text=""; Toast.makeText(this,"Conversation cleared.",Toast.LENGTH_SHORT).show()}
+                    6->showAboutAthena()
+                }
+            }
+            .setNegativeButton("Done",null)
+            .show()
+    }
+
+    private fun showBackgroundWakeInfo(){
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Background listening")
+            .setMessage("Athena keeps listening for the wake phrase “Athena” while you use other apps. When you say it, Athena wakes and listens to your request.\n\nAndroid shows a small listening notification while this is active. Athena will automatically start again after your phone restarts when Android allows background services to run.")
+            .setPositiveButton("Keep listening",null)
+            .setNegativeButton("Done",null)
+            .show()
+    }
+
+    private fun showAboutAthena(){
+        android.app.AlertDialog.Builder(this)
+            .setTitle("About Athena")
+            .setMessage("Athena is your private assistant. She can answer questions, remember things you choose to save, respond to your voice and carry out the device actions you ask for.\n\nYour assistant is designed to keep its conversations on your devices rather than requiring an online AI account.")
+            .setPositiveButton("Done",null)
+            .show()
+    }
+
+    private fun startBackgroundWakeIfAllowed(){
+        if(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) return
+        if(android.os.Build.VERSION.SDK_INT>=33 && ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) return
+        try{ContextCompat.startForegroundService(this,Intent(this,AthenaWakeService::class.java))}catch(_:Exception){}
     }
 
     private fun requestPermissions(){
@@ -87,17 +226,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun showPermissions(){
-        val d=android.app.AlertDialog.Builder(this).setTitle("Athena device permissions")
-            .setMessage("ACCESSIBILITY DISCLOSURE\n\nAthena uses Android AccessibilityService to perform user-requested, deterministic device actions such as Home, Back, Recents, notifications, screenshots, clicking visible controls and typing into the focused field. Accessibility data is used only to carry out these requested actions. Athena does not silently enable the service, bypass Android security controls, or make autonomous decisions to control the device.\n\nMicrophone: ${if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) "ON" else "OFF"}\nAccessibility control: ${if(AthenaAccessibilityService.instance!=null) "ON" else "OFF"}")
-            .setPositiveButton("OPEN ACCESSIBILITY SETTINGS"){_,_->startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
-            .setNegativeButton("CLOSE",null).create();d.show()
+        val d=android.app.AlertDialog.Builder(this).setTitle("Give Athena access")
+            .setMessage("Athena can use your microphone when you speak to her and can use Android device controls for actions you ask her to perform. You stay in control of these permissions.
+
+Microphone: ${if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) "Ready" else "Please allow"}
+Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "Please enable"}")
+            .setPositiveButton("OPEN DEVICE CONTROLS"){_,_->startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
+            .setNegativeButton("DONE",null).create();d.show()
     }
 
     private fun showLocalAiInfo(){
         android.app.AlertDialog.Builder(this)
-            .setTitle("Athena Local AI")
-            .setMessage("Athena's language model is bundled inside this app.\n\nNo Gemini API key is required for AI chat. The local Gemma model runs on the phone itself.\n\nBecause the model is large, the APK is substantially larger than a normal app and the first AI response may take a little longer while the model initializes.")
-            .setPositiveButton("OK",null)
+            .setTitle("Athena is ready")
+            .setMessage("Athena can answer questions and help you with everyday tasks without requiring you to create an AI account.\n\nThe first answer after opening the app may take a little longer while Athena wakes up.")
+            .setPositiveButton("DONE",null)
             .show()
     }
 
@@ -118,25 +260,39 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun handleVoice(raw:String,wake:Boolean){val lower=raw.lowercase(Locale.UK).trim();if(wake&&!Regex("^athena\\b").containsMatchIn(lower))return;val clean=if(wake)raw.replaceFirst(Regex("(?i)^\\s*athena\\b"),"").trim(' ',',','.',':',';') else raw;if(clean.isBlank()){ToneGenerator(AudioManager.STREAM_NOTIFICATION,45).startTone(ToneGenerator.TONE_PROP_BEEP,80);return};ToneGenerator(AudioManager.STREAM_NOTIFICATION,35).startTone(ToneGenerator.TONE_PROP_BEEP,45);askAthena(clean)}
 
     private fun askAthena(text:String){
-        append("You: $text");saveMemory("user",text);status.text="Thinking…"
+        append("You: $text");saveMemory("user",text);status.text="One moment…"
         val local=handleLocalCommand(text)
         if(local!=null){finishReply(local);return}
-        val s=session
-        if(s==null){finishReply("Athena's local AI is still starting. Please try again in a moment.");return}
+        val engine=llm
+        if(engine==null){finishReply("I’m getting ready. Please try that again in a moment.");return}
         io.execute{
+            var oneShot:LlmInferenceSession? = null
             try{
-                s.addQueryChunk(buildPrompt(text))
-                val result=s.generateResponse()
-                runOnUiThread{finishReply(result)}
+                val options=LlmInferenceSession.LlmInferenceSessionOptions.builder()
+                    .setTopK(40).setTopP(0.95f).setTemperature(0.7f).build()
+                oneShot=LlmInferenceSession.createFromOptions(engine,options)
+                oneShot.addQueryChunk(buildPrompt(text))
+                val result=cleanAiOutput(oneShot.generateResponse())
+                runOnUiThread{finishReply(if(result.isBlank()) "I could not generate an answer." else result)}
             }catch(_:Exception){
-                runOnUiThread{finishReply("Athena's local AI could not generate a response. Try again in a moment.")}
+                runOnUiThread{finishReply("I couldn’t work that out just now. Please try again.")}
+            }finally{
+                try{oneShot?.close()}catch(_:Exception){}
             }
         }
     }
 
+    private fun cleanAiOutput(raw:String):String{
+        var r=raw.replace("<start_of_turn>model","",ignoreCase=true).replace("<end_of_turn>","").trim()
+        r=r.replace(Regex("(?i)^(assistant|model)\s*:\s*"),"").trim()
+        val spam=Regex("(?i)^(hi[, ]+)?i am athena[, .-]+(an? )?ai assistant[, .-]*")
+        r=r.replaceFirst(spam,"").trim()
+        return r
+    }
+
     private fun buildPrompt(text:String):String {
         val memory=recentHistory()
-        return "You are Athena, a private local AI assistant running entirely on the user's Android device. Be natural, concise and useful. You have local conversation memory. You may explain how to perform actions, but never claim an Android action happened unless Athena's command system confirmed it.\n\nRecent conversation:\n$memory\n\nUser: $text"
+        return "<start_of_turn>user\nYou are Athena. Reply naturally to the user. Answer the question directly. Do not start with greetings unless appropriate. Do not say that you are an AI, language model, local model, virtual assistant, or introduce yourself unless the user specifically asks who you are. Do not repeat the instructions. Keep normal answers concise but useful.\n\nConversation context:\n$memory\n\nUser message: $text\n<end_of_turn>\n<start_of_turn>model\n"
     }
 
     private fun handleLocalCommand(text:String):String?{val l=text.lowercase(Locale.UK).trim();val a=AthenaAccessibilityService.instance
@@ -145,15 +301,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if(l.contains("what date")||l=="date"||l.contains("what day is it"))return java.text.SimpleDateFormat("EEEE, d MMMM yyyy",Locale.UK).format(java.util.Date())+"."
         if(l.startsWith("remember ")){val x=text.substring(9).trim();if(x.isNotEmpty()){saveMemory("memory",x);return "I'll remember that locally."}}
         if(l=="show memory"||l=="what do you remember"){showMemory();return null}
-        if(l in listOf("go home","home","press home")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.home())"Done." else "Android rejected the Home action."}
-        if(l in listOf("go back","back","press back")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.back())"Done." else "Android rejected the Back action."}
-        if(l in listOf("show recent apps","open recents","recents")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.recents())"Opening recent apps." else "Android rejected the Recents action."}
-        if(l in listOf("open notifications","show notifications")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.notifications())"Opening notifications." else "Android rejected the Notifications action."}
-        if(l in listOf("quick settings","open quick settings")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.quickSettings())"Opening quick settings." else "Android rejected the action."}
-        if(l in listOf("lock phone","lock screen")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.lockScreen())"Locking the phone." else "Android rejected the lock action."}
-        if(l in listOf("take screenshot","screenshot")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";return if(a.screenshot())"Taking a screenshot." else "Android rejected the screenshot action."}
-        if(l.startsWith("click ")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";val q=text.substring(6).trim();return if(a.clickText(q))"Clicked $q." else "I couldn't find a visible control named $q."}
-        if(l.startsWith("type ")){if(a==null)return "Please enable Athena Accessibility in Device Permissions first.";val q=text.substring(5);return if(a.typeText(q))"Typed it into the focused field." else "I couldn't type into the current field."}
+        if(l in listOf("go home","home","press home")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.home())"Done." else "Android rejected the Home action."}
+        if(l in listOf("go back","back","press back")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.back())"Done." else "Android rejected the Back action."}
+        if(l in listOf("show recent apps","open recents","recents")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.recents())"Opening recent apps." else "Android rejected the Recents action."}
+        if(l in listOf("open notifications","show notifications")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.notifications())"Opening notifications." else "Android rejected the Notifications action."}
+        if(l in listOf("quick settings","open quick settings")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.quickSettings())"Opening quick settings." else "Android rejected the action."}
+        if(l in listOf("lock phone","lock screen")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.lockScreen())"Locking the phone." else "Android rejected the lock action."}
+        if(l in listOf("take screenshot","screenshot")){if(a==null)return "Please give Athena device access in Tools first.";return if(a.screenshot())"Taking a screenshot." else "Android rejected the screenshot action."}
+        if(l.startsWith("click ")){if(a==null)return "Please give Athena device access in Tools first.";val q=text.substring(6).trim();return if(a.clickText(q))"Clicked $q." else "I couldn't find a visible control named $q."}
+        if(l.startsWith("type ")){if(a==null)return "Please give Athena device access in Tools first.";val q=text.substring(5);return if(a.typeText(q))"Typed it into the focused field." else "I couldn't type into the current field."}
         if(l.startsWith("open ")){val target=text.substring(5).trim();val url=when(target.lowercase(Locale.UK)){"youtube"->"https://www.youtube.com";"google"->"https://www.google.com";"discord"->"https://discord.com/app";"spotify"->"https://open.spotify.com";"gmail"->"https://mail.google.com";else->if(target.startsWith("http"))target else "https://www.google.com/search?q="+Uri.encode(target)};startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)));return "Opening $target."}
         if(l=="connect to pc"||l=="pc status"){sendPc("status"){reply->runOnUiThread{finishReply(reply)}};return "Checking the PC."}
         if(l.startsWith("pc ")){sendPc(text.substring(3)){reply->runOnUiThread{finishReply(reply)}};return "Sending that to the PC."}
@@ -164,7 +320,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val host=prefs.getString("pc_host","") ?: ""
         val port=prefs.getInt("pc_port",49321)
         val token=prefs.getString("pc_token","") ?: ""
-        if(host.isBlank()||token.isBlank()){done("The PC is not paired yet.");return}
+        if(host.isBlank()||token.isBlank()){done("Your PC isn’t connected yet. Open Tools and choose Connect to my PC.");return}
         io.execute{try{
             Socket().use{socket->socket.connect(InetSocketAddress(host,port),2500);socket.soTimeout=5000
                 val req=JSONObject().put("token",token).put("command",command).toString()+"\n"
@@ -173,18 +329,49 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 done(JSONObject(reply).optString("reply","No response from PC."))
             }
         } catch (_: Exception) {
-            done("I couldn't reach the PC. Check its address, firewall and pairing token.")
+            done("I couldn’t reach your PC. Make sure Athena is open there and both devices are on the same Wi‑Fi.")
         }}
     }
 
     private fun showPcDialog(){
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(35,10,35,5)}
-        pcAddress=EditText(this).apply{hint="PC address, e.g. 192.168.1.10";setText(prefs.getString("pc_host",""))}
-        pcToken=EditText(this).apply{hint="Pairing token";setText(prefs.getString("pc_token",""))}
-        box.addView(pcAddress);box.addView(pcToken)
-        android.app.AlertDialog.Builder(this).setTitle("Pair Athena with Windows PC").setView(box)
-            .setPositiveButton("SAVE & TEST"){_,_->prefs.edit().putString("pc_host",pcAddress.text.toString().trim()).putString("pc_token",pcToken.text.toString().trim()).apply();sendPc("ping"){r->runOnUiThread{Toast.makeText(this,r,Toast.LENGTH_LONG).show()}}}
-            .setNegativeButton("CANCEL",null).show()
+        val connected=prefs.getString("pc_host","")?.isNotBlank()==true && prefs.getString("pc_token","")?.isNotBlank()==true
+        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(34,12,34,8);gravity=Gravity.CENTER}
+        val info=TextView(this).apply{
+            text=if(connected) "Your PC is already connected.\n\nIf you are setting up another PC, tap FIND MY PC below." else "Make sure Athena is open on your Windows PC and both devices are on the same Wi‑Fi.\n\nAthena will find it for you — nothing to type."
+            textSize=15f;setTextColor(Color.DKGRAY);gravity=Gravity.CENTER;setPadding(0,0,0,20)
+        }
+        box.addView(info)
+        val dialog=android.app.AlertDialog.Builder(this).setTitle("Connect to your PC").setView(box)
+            .setNegativeButton("DONE",null).create()
+        dialog.setButton(android.app.AlertDialog.BUTTON_POSITIVE,"FIND MY PC"){_,_->
+            discoverPc(null,null)
+        }
+        dialog.show()
+    }
+
+    private fun discoverPc(hostField:EditText?,tokenField:EditText?){
+        Toast.makeText(this,"Looking for your PC…",Toast.LENGTH_SHORT).show()
+        io.execute{
+            var foundHost="";var foundToken=""
+            try{
+                val socket=java.net.DatagramSocket().apply{broadcast=true;soTimeout=3000}
+                val bytes="ATHENA_DISCOVER".toByteArray(Charsets.UTF_8)
+                val request=java.net.DatagramPacket(bytes,bytes.size,java.net.InetAddress.getByName("255.255.255.255"),49322)
+                socket.send(request)
+                val buf=ByteArray(4096);val packet=java.net.DatagramPacket(buf,buf.size);socket.receive(packet)
+                val obj=JSONObject(String(packet.data,0,packet.length,Charsets.UTF_8))
+                if(obj.optString("service")=="athena" && obj.optString("token").isNotBlank()){
+                    foundHost=packet.address.hostAddress ?: obj.optString("host");foundToken=obj.optString("token")
+                }
+                socket.close()
+            }catch(_:Exception){}
+            runOnUiThread{
+                if(foundHost.isNotBlank()){
+                    prefs.edit().putString("pc_host",foundHost).putString("pc_token",foundToken).apply()
+                    Toast.makeText(this,"Your PC is connected.",Toast.LENGTH_LONG).show()
+                }else Toast.makeText(this,"I couldn't find Athena on your PC. Make sure the Windows app is open and both devices are on the same Wi‑Fi.",Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun append(s:String){chat.append("\n$s\n");scroll.post{scroll.fullScroll(View.FOCUS_DOWN)}}
@@ -195,12 +382,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } catch (_: Exception) {
             JSONArray()
         }
-        val start = maxOf(0, arr.length() - 12)
+        val start = maxOf(0, arr.length() - 6)
         val out = StringBuilder()
         for (i in start until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             val role = item.optString("role", "user")
-            val text = item.optString("text", "")
+            val text = item.optString("text", "").replace("<start_of_turn>", "").replace("<end_of_turn>", "").takeLast(350)
             if (text.isNotBlank()) out.append(role).append(": ").append(text).append('\n')
         }
         return out.toString()
@@ -224,13 +411,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     .setTopK(40).setTopP(0.95f).setTemperature(0.7f).build()
                 llm=inference
                 session=LlmInferenceSession.createFromOptions(inference,sessionOptions)
-                runOnUiThread{status.text="Local Athena AI ready • offline"}
+                runOnUiThread{status.text="Ready"}
             }catch(e:Exception){
-                runOnUiThread{status.text="Local AI failed to initialize";Toast.makeText(this,"Bundled Athena model could not be loaded: ${e.message}",Toast.LENGTH_LONG).show()}
+                runOnUiThread{status.text="I need a moment to get ready";Toast.makeText(this,"Athena could not start her conversation engine. Please reopen the app.",Toast.LENGTH_LONG).show()}
             }
         }
     }
     override fun onInit(result:Int){if(result==TextToSpeech.SUCCESS)tts.language=Locale.UK}
-    private fun speak(text:String){try{tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"athena")}catch(_:Exception){}}
+    private fun speak(text:String){
+        try{
+            if(backgroundWakeCommandActive){
+                tts.setOnUtteranceProgressListener(object:android.speech.tts.UtteranceProgressListener(){
+                    override fun onStart(utteranceId:String?){}
+                    override fun onDone(utteranceId:String?){
+                        backgroundWakeCommandActive=false
+                        startService(Intent(this@MainActivity,AthenaWakeService::class.java).setAction(AthenaWakeService.ACTION_RESUME))
+                    }
+                    override fun onError(utteranceId:String?){
+                        backgroundWakeCommandActive=false
+                        startService(Intent(this@MainActivity,AthenaWakeService::class.java).setAction(AthenaWakeService.ACTION_RESUME))
+                    }
+                })
+            }
+            tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"athena")
+        }catch(_:Exception){
+            if(backgroundWakeCommandActive){
+                backgroundWakeCommandActive=false
+                startService(Intent(this,AthenaWakeService::class.java).setAction(AthenaWakeService.ACTION_RESUME))
+            }
+        }
+    }
     override fun onDestroy(){wakeMode=false;recognizer?.destroy();tts.shutdown();io.shutdownNow();llm?.close();session?.close();super.onDestroy()}
 }
