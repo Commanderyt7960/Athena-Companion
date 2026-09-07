@@ -227,9 +227,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun showPermissions(){
         val d=android.app.AlertDialog.Builder(this).setTitle("Give Athena access")
-            .setMessage("Athena can use your microphone when you speak to her and can use Android device controls for actions you ask her to perform. You stay in control of these permissions.
-
-Microphone: ${if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) "Ready" else "Please allow"}
+            .setMessage("Athena can use your microphone when you speak to her and can use Android device controls for actions you ask her to perform. You stay in control of these permissions.\n\nMicrophone: ${if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) "Ready" else "Please allow"}
 Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "Please enable"}")
             .setPositiveButton("OPEN DEVICE CONTROLS"){_,_->startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
             .setNegativeButton("DONE",null).create();d.show()
@@ -284,7 +282,7 @@ Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "P
 
     private fun cleanAiOutput(raw:String):String{
         var r=raw.replace("<start_of_turn>model","",ignoreCase=true).replace("<end_of_turn>","").trim()
-        r=r.replace(Regex("(?i)^(assistant|model)\s*:\s*"),"").trim()
+        r=r.replace(Regex("(?i)^(assistant|model)\\s*:\\s*"),"").trim()
         val spam=Regex("(?i)^(hi[, ]+)?i am athena[, .-]+(an? )?ai assistant[, .-]*")
         r=r.replaceFirst(spam,"").trim()
         return r

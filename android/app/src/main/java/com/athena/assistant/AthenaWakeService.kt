@@ -127,7 +127,7 @@ class AthenaWakeService : Service() {
         restarting = true
         android.os.Handler(mainLooper).postDelayed({
             restarting = false
-            if (!isDestroyed && !paused && !listening) startWakeListening()
+            if (!paused && !listening) startWakeListening()
         }, 700)
     }
 
