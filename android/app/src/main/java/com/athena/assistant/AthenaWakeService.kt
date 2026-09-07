@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import java.util.Locale
 
 class AthenaWakeService : Service() {
+    private var foregroundReady = false
     private var recognizer: SpeechRecognizer? = null
     private var paused = false
     private var restarting = false
@@ -32,13 +33,15 @@ class AthenaWakeService : Service() {
         try {
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
             else startForeground(NOTIFICATION_ID, notification())
+            foregroundReady = true
         } catch (_: Throwable) {
-            // Do not crash the process if Android rejects foreground-service startup.
+            foregroundReady = false
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!foregroundReady) return START_NOT_STICKY
         when (intent?.action) {
             ACTION_STOP -> { paused = true; stopSelf(); return START_NOT_STICKY }
             ACTION_PAUSE -> { paused = true; recognizer?.cancel(); return START_STICKY }
@@ -67,7 +70,8 @@ class AthenaWakeService : Service() {
                 override fun onResults(results: Bundle?) {
                     val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
                     val lower = spoken.lowercase(Locale.UK)
-                    if (lower == "athena" || lower.startsWith("athena ") || lower.startsWith("athena,") || lower.startsWith("athena.")) {
+                    val wakeDetected = lower == "athena" || lower.contains("athena ") || lower.contains(" athena") || lower.startsWith("athena,") || lower.startsWith("athena.") || lower == "a then a" || lower.startsWith("a then a ")
+                    if (wakeDetected) {
                         val command = stripWakeWord(spoken)
                         ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35).startTone(ToneGenerator.TONE_PROP_BEEP, 45)
                         paused = true
@@ -75,6 +79,7 @@ class AthenaWakeService : Service() {
                         val open = Intent(this@AthenaWakeService, MainActivity::class.java).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                             putExtra(MainActivity.EXTRA_WAKE_COMMAND, command)
+                            putExtra(MainActivity.EXTRA_WAKE_ONLY, command.isBlank())
                         }
                         try { startActivity(open) } catch (_: Throwable) {
                             // Android may block background activity launches. The notification remains available.
@@ -88,7 +93,6 @@ class AthenaWakeService : Service() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.UK.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         try { recognizer?.startListening(speechIntent) } catch (_: Throwable) { restartSoon() }
     }

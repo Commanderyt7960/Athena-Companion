@@ -42,6 +42,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     companion object {
         const val EXTRA_WAKE_COMMAND = "athena_wake_command"
+        const val EXTRA_WAKE_ONLY = "athena_wake_only"
         private const val REQ_MIC = 100
         private const val REQ_NOTIFY = 101
     }
@@ -58,10 +59,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var scroll: ScrollView
     private var permissionDialog: AlertDialog? = null
     private var listeningForCommand = false
+    private var wakeStartRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("athena_local", Context.MODE_PRIVATE)
+        if (!prefs.contains("background_wake")) prefs.edit().putBoolean("background_wake", true).apply()
         tts = TextToSpeech(this, this)
         buildUi()
         loadModelIfPresent()
@@ -84,6 +87,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (hasMicPermission()) {
             status.text = "Microphone ready"
             requestNotificationPermissionIfNeeded()
+            if (prefs.getBoolean("background_wake", true) && !wakeStartRequested) {
+                wakeStartRequested = true
+                window.decorView.postDelayed({ enableAlwaysOn(silent = true) }, 350)
+            }
             return
         }
         if (permissionDialog?.isShowing == true) return
@@ -118,6 +125,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (hasMicPermission()) {
                     status.text = "Microphone ready"
                     requestNotificationPermissionIfNeeded()
+                    prefs.edit().putBoolean("background_wake", true).apply()
+                    wakeStartRequested = true
+                    window.decorView.postDelayed({ enableAlwaysOn(silent = true) }, 350)
                 } else {
                     status.text = "Microphone permission needed"
                     window.decorView.postDelayed({ ensureMicrophonePermission() }, 450)
@@ -131,23 +141,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun buildUi() {
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 16)
+            setPadding(18, 8, 18, 8)
             setBackgroundColor(Color.rgb(7, 8, 13))
         }
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(0, 10, 0, 18)
+            setPadding(0, 4, 0, 8)
         }
         val icon = ImageView(this).apply {
             setImageResource(R.drawable.athena_icon)
-            layoutParams = LinearLayout.LayoutParams(92, 92).apply { bottomMargin = 10 }
+            layoutParams = LinearLayout.LayoutParams(64, 64).apply { bottomMargin = 4 }
         }
         val title = TextView(this).apply {
             text = "ATHENA"
-            textSize = 30f
+            textSize = 25f
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(Color.rgb(244, 241, 255))
@@ -155,7 +166,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         val welcome = TextView(this).apply {
             text = "What can I do for you?"
-            textSize = 16f
+            textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(180, 176, 198))
         }
@@ -166,13 +177,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(150, 222, 188))
-            setPadding(0, 0, 0, 10)
+            setPadding(0, 0, 0, 5)
         }
         chat = TextView(this).apply {
             text = "Athena is starting…"
             textSize = 16f
             setTextColor(Color.rgb(232, 230, 239))
-            setPadding(18, 18, 18, 18)
+            setPadding(14, 14, 14, 14)
             setBackgroundResource(R.drawable.athena_panel)
         }
         scroll = ScrollView(this).apply { addView(chat) }
@@ -182,7 +193,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setSingleLine(true)
             setTextColor(Color.rgb(239, 237, 246))
             setHintTextColor(Color.rgb(118, 115, 133))
-            setPadding(18, 14, 18, 14)
+            setPadding(16, 10, 16, 10)
             setBackgroundResource(R.drawable.athena_input)
             imeOptions = EditorInfo.IME_ACTION_SEND
             setOnEditorActionListener { _, actionId, event ->
@@ -203,8 +214,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(hero)
         root.addView(status)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(input, LinearLayout.LayoutParams(-1, 64).apply { topMargin = 12; bottomMargin = 10 })
-        root.addView(tools, LinearLayout.LayoutParams(-1, 54))
+        root.addView(input, LinearLayout.LayoutParams(-1, 58).apply { topMargin = 7; bottomMargin = 7 })
+        root.addView(tools, LinearLayout.LayoutParams(-1, 50))
         setContentView(root)
     }
 
@@ -221,7 +232,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setTitle("Tools").setItems(items) { _, which ->
             when (which) {
                 0 -> startListening(false)
-                1 -> enableAlwaysOn()
+                1 -> enableAlwaysOn(false)
                 2 -> showPcDialog()
                 3 -> showDeviceAccess()
                 4 -> showMemory()
@@ -231,7 +242,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }.setNegativeButton("Done", null).show()
     }
 
-    private fun enableAlwaysOn() {
+    private fun enableAlwaysOn(silent: Boolean = false) {
         if (!hasMicPermission()) { ensureMicrophonePermission(); return }
         prefs.edit().putBoolean("background_wake", true).apply()
         requestNotificationPermissionIfNeeded()
@@ -239,15 +250,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val intent = Intent(this, AthenaWakeService::class.java)
             ContextCompat.startForegroundService(this, intent)
             status.text = "Listening for “Athena”…"
-            Toast.makeText(this, "Always-on microphone enabled.", Toast.LENGTH_SHORT).show()
+            if (!silent) Toast.makeText(this, "Always-on microphone enabled.", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            status.text = "Could not start listening"
-            Toast.makeText(this, "Android stopped the background listener. Athena is still open.", Toast.LENGTH_LONG).show()
+            status.text = "Microphone ready"
+            if (!silent) Toast.makeText(this, "Android could not start always-on listening. Athena is still open.", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun disableAlwaysOn() {
         prefs.edit().putBoolean("background_wake", false).apply()
+        wakeStartRequested = false
         try { stopService(Intent(this, AthenaWakeService::class.java)) } catch (_: Exception) { }
         status.text = if (hasMicPermission()) "Microphone ready" else "Microphone permission needed"
     }
@@ -328,9 +340,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun handleWakeIntent(intent: Intent?) {
         val command = intent?.getStringExtra(EXTRA_WAKE_COMMAND)?.trim().orEmpty()
+        val wakeOnly = intent?.getBooleanExtra(EXTRA_WAKE_ONLY, false) == true
         if (command.isNotBlank()) {
             try { startService(Intent(this, AthenaWakeService::class.java).setAction(AthenaWakeService.ACTION_PAUSE)) } catch (_: Exception) { }
             window.decorView.postDelayed({ askAthena(command) }, 250)
+        } else if (wakeOnly) {
+            try { startService(Intent(this, AthenaWakeService::class.java).setAction(AthenaWakeService.ACTION_PAUSE)) } catch (_: Exception) { }
+            status.text = "I'm listening…"
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35).startTone(ToneGenerator.TONE_PROP_BEEP, 55)
+            window.decorView.postDelayed({ startListening(false) }, 300)
         }
     }
 
