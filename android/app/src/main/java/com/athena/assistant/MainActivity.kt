@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 socket.getOutputStream().write(req.toByteArray(Charsets.UTF_8));socket.getOutputStream().flush()
                 val reply=socket.getInputStream().bufferedReader().readLine() ?: error("empty")
                 done(JSONObject(reply).optString("reply","No response from PC."))
-            }}
+            }
         } catch (_: Exception) {
             done("I couldn't reach the PC. Check its address, firewall and pairing token.")
         }}
