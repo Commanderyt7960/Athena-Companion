@@ -144,21 +144,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16, 4, 16, 4)
+            setPadding(16, 2, 16, 10)
             setBackgroundColor(Color.rgb(7, 8, 13))
         }
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 4)
+            setPadding(0, 0, 0, 2)
         }
         val icon = ImageView(this).apply {
             setImageResource(R.drawable.athena_icon)
-            layoutParams = LinearLayout.LayoutParams(48, 48).apply { bottomMargin = 2 }
+            layoutParams = LinearLayout.LayoutParams(40, 40).apply { bottomMargin = 0 }
         }
         val title = TextView(this).apply {
             text = "ATHENA"
-            textSize = 22f
+            textSize = 20f
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(Color.rgb(244, 241, 255))
@@ -213,9 +213,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         root.addView(hero)
         root.addView(status)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 0.55f))
-        root.addView(input, LinearLayout.LayoutParams(-1, 52).apply { topMargin = 5; bottomMargin = 5 })
-        root.addView(tools, LinearLayout.LayoutParams(-1, 46))
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 150).apply { topMargin = 2; bottomMargin = 6 })
+        root.addView(input, LinearLayout.LayoutParams(-1, 50).apply { topMargin = 0; bottomMargin = 6 })
+        root.addView(tools, LinearLayout.LayoutParams(-1, 50).apply { topMargin = 0; bottomMargin = 2 })
         setContentView(root)
     }
 
