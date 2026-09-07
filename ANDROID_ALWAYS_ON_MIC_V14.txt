@@ -1,0 +1,11 @@
+ATHENA V14 - ALWAYS-ON MICROPHONE BEHAVIOUR
+============================================
+
+- Athena never exits when microphone permission is declined.
+- On first launch, Athena shows an Always-on microphone prompt before requesting RECORD_AUDIO.
+- If microphone access is declined, the prompt returns automatically.
+- Notification permission is requested separately and is not allowed to block Athena.
+- Background listening starts only after microphone permission is actually granted.
+- If microphone permission is later revoked or set to Ask every time, Athena stays open and asks again.
+- The Android system permission wording/options are controlled by Android; the app cannot rename or force the system choices.
+- For continuous microphone foreground listening, select Android's “While using the app” microphone option when prompted.
