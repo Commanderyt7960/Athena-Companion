@@ -77,7 +77,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        if (prefs.getBoolean("background_wake", true)) startBackgroundWakeIfAllowed()
+        if (!backgroundWakeCommandActive && prefs.getBoolean("background_wake", true)) {
+            startBackgroundWakeIfAllowed()
+        }
     }
 
     private fun buildUi() {
@@ -198,7 +200,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showBackgroundWakeInfo(){
         android.app.AlertDialog.Builder(this)
             .setTitle("Background listening")
-            .setMessage("Athena keeps listening for the wake phrase “Athena” while you use other apps. When you say it, Athena wakes and listens to your request.\n\nAndroid shows a small listening notification while this is active. Athena will automatically start again after your phone restarts when Android allows background services to run.")
+            .setMessage("Athena keeps listening for the wake phrase “Athena” while you use other apps. When you say it, Athena wakes and listens to your request.\n\nAndroid shows a small listening notification while this is active. On newer Android versions, microphone background listening must be started while Athena is open; Android does not allow ordinary apps to silently start a microphone service after a reboot.")
             .setPositiveButton("Keep listening",null)
             .setNegativeButton("Done",null)
             .show()
@@ -226,11 +228,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun showPermissions(){
-        val d=android.app.AlertDialog.Builder(this).setTitle("Give Athena access")
-            .setMessage("Athena can use your microphone when you speak to her and can use Android device controls for actions you ask her to perform. You stay in control of these permissions.\n\nMicrophone: ${if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) "Ready" else "Please allow"}
-Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "Please enable"}")
-            .setPositiveButton("OPEN DEVICE CONTROLS"){_,_->startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
-            .setNegativeButton("DONE",null).create();d.show()
+        val microphoneReady = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        val controlsReady = AthenaAccessibilityService.instance != null
+        val message = buildString {
+            append("Athena can use your microphone when you speak to her and can use device controls for actions you ask her to perform.\n\n")
+            append("Microphone: ")
+            append(if (microphoneReady) "Ready" else "Please allow")
+            append("\nDevice controls: ")
+            append(if (controlsReady) "Ready" else "Please enable")
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Give Athena access")
+            .setMessage(message)
+            .setPositiveButton("OPEN DEVICE CONTROLS") { _, _ ->
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .setNegativeButton("DONE", null)
+            .show()
     }
 
     private fun showLocalAiInfo(){
@@ -243,6 +259,9 @@ Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "P
 
     private fun startListening(wake:Boolean){
         if(!SpeechRecognizer.isRecognitionAvailable(this)){status.text="Speech recognition unavailable";return}
+        if (!wake) {
+            try { recognizer?.cancel() } catch (_: Exception) { }
+        }
         if(recognizer==null){recognizer=SpeechRecognizer.createSpeechRecognizer(this);recognizer!!.setRecognitionListener(object:RecognitionListener{
             override fun onReadyForSpeech(p:Bundle?){status.text=if(wake)"Waiting for “Athena”…" else "Listening…"}
             override fun onBeginningOfSpeech(){status.text="Hearing you…"};override fun onRmsChanged(v:Float){};override fun onBufferReceived(b:ByteArray?){ }
@@ -255,7 +274,28 @@ Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "P
         try{recognizer!!.startListening(i)}catch(_:Exception){}
     }
     private fun postListen(){window.decorView.postDelayed({if(wakeMode)startListening(true)},500)}
-    private fun handleVoice(raw:String,wake:Boolean){val lower=raw.lowercase(Locale.UK).trim();if(wake&&!Regex("^athena\\b").containsMatchIn(lower))return;val clean=if(wake)raw.replaceFirst(Regex("(?i)^\\s*athena\\b"),"").trim(' ',',','.',':',';') else raw;if(clean.isBlank()){ToneGenerator(AudioManager.STREAM_NOTIFICATION,45).startTone(ToneGenerator.TONE_PROP_BEEP,80);return};ToneGenerator(AudioManager.STREAM_NOTIFICATION,35).startTone(ToneGenerator.TONE_PROP_BEEP,45);askAthena(clean)}
+    private fun handleVoice(raw:String,wake:Boolean){
+        val spoken=raw.trim()
+        val lower=spoken.lowercase(Locale.UK)
+        if(wake && !(lower=="athena" || lower.startsWith("athena ") || lower.startsWith("athena,") || lower.startsWith("athena."))) return
+        val clean=if(wake) stripWakeWord(spoken) else spoken
+        if(clean.isBlank()){
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION,45).startTone(ToneGenerator.TONE_PROP_BEEP,80)
+            return
+        }
+        ToneGenerator(AudioManager.STREAM_NOTIFICATION,35).startTone(ToneGenerator.TONE_PROP_BEEP,45)
+        askAthena(clean)
+    }
+
+    private fun stripWakeWord(spoken:String):String{
+        val lower=spoken.lowercase(Locale.UK)
+        if(lower=="athena") return ""
+        var index=6
+        while(index<spoken.length && spoken[index].isWhitespace()) index++
+        if(index<spoken.length && spoken[index] in charArrayOf(',', '.', ':', ';', '-', '!','?')) index++
+        while(index<spoken.length && spoken[index].isWhitespace()) index++
+        return spoken.substring(index).trim()
+    }
 
     private fun askAthena(text:String){
         append("You: $text");saveMemory("user",text);status.text="One moment…"
@@ -281,11 +321,25 @@ Device controls: ${if(AthenaAccessibilityService.instance!=null) "Ready" else "P
     }
 
     private fun cleanAiOutput(raw:String):String{
-        var r=raw.replace("<start_of_turn>model","",ignoreCase=true).replace("<end_of_turn>","").trim()
-        r=r.replace(Regex("(?i)^(assistant|model)\\s*:\\s*"),"").trim()
-        val spam=Regex("(?i)^(hi[, ]+)?i am athena[, .-]+(an? )?ai assistant[, .-]*")
-        r=r.replaceFirst(spam,"").trim()
-        return r
+        var r=raw.replace("<start_of_turn>model", "", ignoreCase=true)
+            .replace("<end_of_turn>", "", ignoreCase=true)
+            .trim()
+        val lower=r.lowercase(Locale.UK)
+        if(lower.startsWith("assistant:")) r=r.substringAfter(':').trim()
+        else if(lower.startsWith("model:")) r=r.substringAfter(':').trim()
+        val spamPrefixes=listOf(
+            "i am athena, an ai assistant",
+            "i am athena, an ai assistant.",
+            "i'm athena, an ai assistant",
+            "i'm athena, an ai assistant."
+        )
+        for(prefix in spamPrefixes){
+            if(r.startsWith(prefix, ignoreCase=true)){
+                r=r.substring(prefix.length).trimStart(' ', '.', ',', '-', ':')
+                break
+            }
+        }
+        return r.trim()
     }
 
     private fun buildPrompt(text:String):String {

@@ -1,0 +1,10 @@
+ATHENA V10 — SIMPLE UI + AUTO PAIRING + ALWAYS-ON BACKGROUND WAKE
+
+- Main screen now has only SEND and one TOOLS button. Device/PC/wake/memory controls are inside Tools.
+- PC pairing has FIND PC automatic Wi-Fi discovery. IP/token are filled automatically when the Windows app is running.
+- Windows listens for Athena discovery on UDP 49322 and replies with the PC address, port and pairing token.
+- Background wake defaults ON, starts when Athena opens, restarts after wake processing, and is started again after device boot/package replacement when permissions allow.
+- Background wake uses a microphone foreground service with the required Android 14+ microphone service type.
+- Wake listener pauses before launching Athena so it cannot hear its own response and loop.
+- Android AI uses a fresh Gemma session per question, compact recent history, Gemma turn formatting, and output cleanup to prevent role/prompt spam.
+- This source package still downloads the large local model during GitHub Actions; it is not stored in the source ZIP.

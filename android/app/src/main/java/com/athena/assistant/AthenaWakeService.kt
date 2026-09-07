@@ -87,9 +87,8 @@ class AthenaWakeService : Service() {
                     val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull().orEmpty().trim()
                     val lower = spoken.lowercase(Locale.UK)
-                    if (Regex("^athena\\b").containsMatchIn(lower)) {
-                        val clean = spoken.replaceFirst(Regex("(?i)^\\s*athena\\b"), "")
-                            .trim(' ', ',', '.', ':', ';')
+                    if (lower == "athena" || lower.startsWith("athena ") || lower.startsWith("athena,") || lower.startsWith("athena.")) {
+                        val clean = stripWakeWord(spoken)
                         ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35)
                             .startTone(ToneGenerator.TONE_PROP_BEEP, 45)
                         val open = Intent(this@AthenaWakeService, MainActivity::class.java).apply {
@@ -122,13 +121,25 @@ class AthenaWakeService : Service() {
         }
     }
 
+    private fun stripWakeWord(spoken:String):String{
+        val lower=spoken.lowercase(Locale.UK)
+        if(lower=="athena") return ""
+        var index=6
+        while(index<spoken.length && spoken[index].isWhitespace()) index++
+        if(index<spoken.length && spoken[index] in charArrayOf(',', '.', ':', ';', '-', '!', '?')) index++
+        while(index<spoken.length && spoken[index].isWhitespace()) index++
+        return spoken.substring(index).trim()
+    }
+
+    private val handler = android.os.Handler(mainLooper)
+
     private fun restartSoon() {
-        if (restarting) return
+        if (restarting || paused) return
         restarting = true
-        android.os.Handler(mainLooper).postDelayed({
+        handler.postDelayed({
             restarting = false
             if (!paused && !listening) startWakeListening()
-        }, 700)
+        }, 900)
     }
 
     private fun createChannel() {
