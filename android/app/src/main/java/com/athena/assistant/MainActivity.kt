@@ -36,7 +36,11 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
-    companion object { const val EXTRA_WAKE_COMMAND = "athena_wake_command" }
+    companion object {
+        const val EXTRA_WAKE_COMMAND = "athena_wake_command"
+        const val REQUEST_MIC = 10
+        const val REQUEST_NOTIFICATIONS = 11
+    }
     private lateinit var prefs: SharedPreferences
     private lateinit var tts: TextToSpeech
     private var recognizer: SpeechRecognizer? = null
@@ -77,9 +81,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        if (!backgroundWakeCommandActive && prefs.getBoolean("background_wake", true)) {
-            startBackgroundWakeIfAllowed()
-        }
+        // Do not start the microphone service merely because the activity resumed.
+        // Android requires the microphone permission to be granted before a
+        // microphone foreground service is created on modern Android versions.
+        // The permission callback below starts it after the user explicitly allows it.
     }
 
     private fun buildUi() {
@@ -215,38 +220,48 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startBackgroundWakeIfAllowed(){
-        if(ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) return
-        if(android.os.Build.VERSION.SDK_INT>=33 && ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) return
-        try{ContextCompat.startForegroundService(this,Intent(this,AthenaWakeService::class.java))}catch(_:Exception){}
+        if (!prefs.getBoolean("background_wake", true)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        try {
+            val serviceIntent = Intent(this, AthenaWakeService::class.java)
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } catch (_: SecurityException) {
+            // Never let a foreground-service permission failure close Athena.
+            status.text = "Ready"
+        } catch (_: IllegalStateException) {
+            status.text = "Ready"
+        } catch (_: Exception) {
+            status.text = "Ready"
+        }
     }
 
     private fun requestPermissions(){
-        val needed=mutableListOf<String>()
-        if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.RECORD_AUDIO)
-        if(android.os.Build.VERSION.SDK_INT>=33 && ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.POST_NOTIFICATIONS)
-        if(needed.isNotEmpty()) ActivityCompat.requestPermissions(this,needed.toTypedArray(),10)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
+            return
+        }
+        requestNotificationPermissionIfNeeded()
+        startBackgroundWakeIfAllowed()
     }
 
-    private fun showPermissions(){
-        val microphoneReady = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        val controlsReady = AthenaAccessibilityService.instance != null
-        val message = buildString {
-            append("Athena can use your microphone when you speak to her and can use device controls for actions you ask her to perform.\n\n")
-            append("Microphone: ")
-            append(if (microphoneReady) "Ready" else "Please allow")
-            append("\nDevice controls: ")
-            append(if (controlsReady) "Ready" else "Please enable")
+    private fun requestNotificationPermissionIfNeeded(){
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
         }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Give Athena access")
-            .setMessage(message)
-            .setPositiveButton("OPEN DEVICE CONTROLS") { _, _ ->
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    override fun onRequestPermissionsResult(requestCode:Int, permissions:Array<out String>, grantResults:IntArray){
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_MIC) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                requestNotificationPermissionIfNeeded()
+                // Start only after the microphone permission is definitely granted.
+                window.decorView.post { startBackgroundWakeIfAllowed() }
+            } else {
+                status.text = "Microphone access is needed for voice features."
             }
-            .setNegativeButton("DONE", null)
-            .show()
+        }
     }
 
     private fun showLocalAiInfo(){
