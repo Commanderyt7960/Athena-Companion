@@ -436,29 +436,99 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun showPcDialog() {
-        AlertDialog.Builder(this).setTitle("Connect to your PC")
-            .setMessage("Make sure Athena is open on your Windows PC and both devices are on the same Wi‑Fi. Athena will find it for you — nothing to type.")
-            .setNegativeButton("DONE", null)
-            .setPositiveButton("FIND MY PC") { _, _ -> discoverPc() }.show()
+        AlertDialog.Builder(this).setTitle("Connect to my PC")
+            .setMessage("Athena will look for nearby PCs on your local network. Choose a device, then confirm the connection on that PC. You never need to type an IP address or token.")
+            .setNegativeButton("CANCEL", null)
+            .setPositiveButton("FIND DEVICES") { _, _ -> discoverNearbyPcs() }
+            .show()
     }
 
-    private fun discoverPc() {
-        Toast.makeText(this, "Looking for your PC…", Toast.LENGTH_SHORT).show()
+    private fun discoverNearbyPcs() {
+        Toast.makeText(this, "Looking for nearby Athena devices…", Toast.LENGTH_SHORT).show()
         io.execute {
-            var foundHost = ""; var foundToken = ""
+            val found = linkedMapOf<String, JSONObject>()
             try {
                 DatagramSocket().use { socket ->
-                    socket.broadcast = true; socket.soTimeout = 3000
-                    val bytes = "ATHENA_DISCOVER".toByteArray(Charsets.UTF_8)
+                    socket.broadcast = true
+                    socket.soTimeout = 900
+                    val bytes = "ATHENA_DISCOVER_V2".toByteArray(Charsets.UTF_8)
                     socket.send(DatagramPacket(bytes, bytes.size, InetAddress.getByName("255.255.255.255"), 49322))
-                    val buf = ByteArray(4096); val packet = DatagramPacket(buf, buf.size); socket.receive(packet)
-                    val obj = JSONObject(String(packet.data, 0, packet.length, Charsets.UTF_8))
-                    if (obj.optString("service") == "athena" && obj.optString("token").isNotBlank()) { foundHost = packet.address.hostAddress ?: ""; foundToken = obj.optString("token") }
+                    val deadline = System.currentTimeMillis() + 1200
+                    while (System.currentTimeMillis() < deadline) {
+                        try {
+                            val buf = ByteArray(4096)
+                            val packet = DatagramPacket(buf, buf.size)
+                            socket.receive(packet)
+                            val obj = JSONObject(String(packet.data, 0, packet.length, Charsets.UTF_8))
+                            if (obj.optString("service") == "athena" && obj.optString("device_id").isNotBlank()) {
+                                found[obj.optString("device_id")] = obj
+                            }
+                        } catch (_: java.net.SocketTimeoutException) { }
+                    }
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) { }
             runOnUiThread {
-                if (foundHost.isNotBlank()) { prefs.edit().putString("pc_host", foundHost).putString("pc_token", foundToken).apply(); Toast.makeText(this, "Your PC is connected.", Toast.LENGTH_LONG).show() }
-                else Toast.makeText(this, "I couldn't find Athena on your PC.", Toast.LENGTH_LONG).show()
+                if (found.isEmpty()) {
+                    Toast.makeText(this, "No nearby Athena PCs found.", Toast.LENGTH_LONG).show()
+                } else {
+                    choosePcDevice(found.values.toList())
+                }
+            }
+        }
+    }
+
+    private fun choosePcDevice(devices: List<JSONObject>) {
+        val names = devices.map { obj ->
+            val name = obj.optString("name", "Athena PC")
+            val host = obj.optString("host", "")
+            if (host.isBlank()) name else "$name  •  $host"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Choose a device")
+            .setItems(names) { _, which -> requestPcConfirmation(devices[which]) }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun requestPcConfirmation(device: JSONObject) {
+        val host = device.optString("host")
+        if (host.isBlank()) {
+            Toast.makeText(this, "That device could not be reached.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val phoneName = android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
+        Toast.makeText(this, "Waiting for confirmation on the PC…", Toast.LENGTH_SHORT).show()
+        io.execute {
+            var paired = false
+            var token = ""
+            var port = 49321
+            try {
+                DatagramSocket().use { socket ->
+                    socket.soTimeout = 35000
+                    val request = JSONObject().put("type", "ATHENA_PAIR_REQUEST")
+                        .put("service", "athena").put("phone_name", phoneName)
+                        .put("device_id", device.optString("device_id"))
+                        .put("nonce", java.util.UUID.randomUUID().toString()).toString().toByteArray(Charsets.UTF_8)
+                    socket.send(DatagramPacket(request, request.size, InetAddress.getByName(host), 49322))
+                    val buf = ByteArray(8192)
+                    val packet = DatagramPacket(buf, buf.size)
+                    socket.receive(packet)
+                    val reply = JSONObject(String(packet.data, 0, packet.length, Charsets.UTF_8))
+                    paired = reply.optBoolean("approved", false)
+                    token = reply.optString("token")
+                    port = reply.optInt("port", 49321)
+                }
+            } catch (_: Exception) { }
+            val finalPaired = paired
+            val finalToken = token
+            val finalPort = port
+            runOnUiThread {
+                if (finalPaired && finalToken.isNotBlank()) {
+                    prefs.edit().putString("pc_host", host).putString("pc_token", finalToken).putInt("pc_port", finalPort).apply()
+                    Toast.makeText(this, "PC connected and confirmed.", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "The PC did not approve the connection.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

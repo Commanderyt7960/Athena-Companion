@@ -159,18 +159,64 @@ class AthenaPC:
     def discovery_server(self):
         s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+        device_id = "pc-" + socket.gethostname()
+        device_name = "Athena PC — " + socket.gethostname()
         try:
             s.bind(("0.0.0.0",49322))
             while True:
-                data,addr=s.recvfrom(4096)
-                if data.decode("utf-8",errors="ignore").strip()=="ATHENA_DISCOVER":
-                    reply=json.dumps({"service":"athena","host":local_ip(),"port":PORT,"token":TOKEN}).encode("utf-8")
+                data,addr=s.recvfrom(8192)
+                text=data.decode("utf-8",errors="ignore").strip()
+                if text in ("ATHENA_DISCOVER", "ATHENA_DISCOVER_V2"):
+                    reply=json.dumps({
+                        "service":"athena",
+                        "device_id":device_id,
+                        "name":device_name,
+                        "host":local_ip(),
+                        "port":PORT
+                    }).encode("utf-8")
                     s.sendto(reply,addr)
-        except Exception as e:
-            self.root.after(0,lambda:self.connection.configure(text="Phone connection unavailable"))
+                else:
+                    try:
+                        req=json.loads(text)
+                    except Exception:
+                        continue
+                    if req.get("type") != "ATHENA_PAIR_REQUEST":
+                        continue
+                    if req.get("service") != "athena":
+                        continue
+                    if req.get("device_id") != device_id:
+                        continue
+                    phone_name=str(req.get("phone_name") or "Unknown phone")
+                    nonce=str(req.get("nonce") or "")
+                    # Ask on the main Windows UI thread. No token is sent until the
+                    # person at the PC explicitly approves this phone.
+                    self.root.after(0, lambda a=addr, pn=phone_name, n=nonce: self.confirm_pair(a,pn,n))
+        except Exception:
+            self.root.after(0,lambda:self.connection.configure(text="Nearby pairing unavailable"))
         finally:
             try:s.close()
             except Exception:pass
+
+    def confirm_pair(self, addr, phone_name, nonce):
+        from tkinter import messagebox
+        approved = messagebox.askyesno(
+            "Athena — Confirm device",
+            f"A phone wants to connect to Athena.\n\nDevice:\n{phone_name}\n\nAllow this phone to pair with this PC?",
+            parent=self.root
+        )
+        reply={"service":"athena","approved":bool(approved),"port":PORT,"nonce":nonce}
+        if approved:
+            reply["token"]=TOKEN
+            self.connection.configure(text=f"Connected: {phone_name}")
+            self.write(f"Paired with {phone_name}.")
+        else:
+            self.write(f"Pairing rejected for {phone_name}.")
+        try:
+            with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as out:
+                out.sendto(json.dumps(reply).encode("utf-8"),addr)
+        except Exception:
+            pass
+
     def server(self):
         s=socket.socket(socket.AF_INET,socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("0.0.0.0",PORT)); s.listen(20)
         while True:
